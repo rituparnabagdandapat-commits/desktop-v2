@@ -9,7 +9,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc nasm make git xorriso
       - name: Build ISO
         run: |
-          git clone https://github.com/limine-bootloader/limine.git --depth=1
+          git clone https://github.com/limine-bootloader/limine.git --branch=v7.12.0 --depth=1
           make -C limine
           cp limine/limine.h .
           echo 'TIMEOUT=0
