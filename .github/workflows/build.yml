@@ -9,9 +9,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso
       - name: Build ISO
         run: |
-          wget https://github.com/limine-bootloader/limine/releases/download/v7.12.0/limine-7.12.0-binary-boot.zip
-          unzip limine-7.12.0-binary-boot.zip
-          cp limine-7.12.0/limine.h .
+          git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
+          cp limine/limine.h .
+          make -C limine
           echo "TIMEOUT=0
           :MBS OS
           PROTOCOL=limine
@@ -21,9 +21,9 @@ jobs:
           mkdir -p iso_root/boot/limine
           cp mbs_kernel.elf limine.cfg iso_root/boot/
           cp limine.cfg iso_root/boot/limine/
-          cp limine-7.12.0/limine-bios.sys limine-7.12.0/limine-bios-cd.bin limine-7.12.0/limine-uefi-cd.bin iso_root/boot/
+          cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/
           xorriso -as mkisofs -b boot/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label -o MBS-OS.iso iso_root
-          ./limine-7.12.0/limine bios-install MBS-OS.iso
+          ./limine/limine bios-install MBS-OS.iso
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
