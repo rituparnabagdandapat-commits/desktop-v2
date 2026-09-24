@@ -6,7 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso
+        run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
       - name: Build ISO
         run: |
           git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
@@ -16,7 +16,7 @@ jobs:
           :MBS OS
           PROTOCOL=limine
           KERNEL_PATH=boot:///boot/mbs_kernel.elf" > limine.cfg
-          gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel
+          gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
           ld -T linker.ld kernel.o -o mbs_kernel.elf
           mkdir -p iso_root/boot/limine
           cp mbs_kernel.elf limine.cfg iso_root/boot/
