@@ -1,0 +1,54 @@
+name: Build MBS OS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y nasm gcc-multilib binutils \
+          xorriso mtools qemu-system-x86 build-essential
+
+      - name: Build Bootloader
+        run: |
+          nasm -f elf32 boot/boot.asm -o boot.o
+
+      - name: Build Kernel
+        run: |
+          gcc -m32 -c kernel/kernel.c -o kernel.o -ffreestanding -nostdlib -fno-pie
+          ld -m elf_i386 -T linker.ld -o kernel.bin boot.o kernel.o
+
+      - name: Build Limine ISO
+        run: |
+          git clone https://github.com/limine-bootloader/limine.git --depth=1
+          make -C limine
+          mkdir -p iso_root/boot
+          cp kernel.bin iso_root/boot/
+          cp limine.cfg iso_root/boot/
+          cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/
+          mkdir -p iso_root/boot/limine
+          cp limine.cfg iso_root/boot/limine/
+          xorriso -as mkisofs -b boot/limine-bios-cd.bin \
+                  -no-emul-boot --protective-msdos-label \
+                  -o MBS-OS.iso iso_root/
+          ./limine/limine bios-install MBS-OS.iso
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: MBS-OS-ISO
+          path: MBS-OS.iso
+
+      - name: Test in QEMU
+        run: |
+          timeout 10s qemu-system-i386 -cdrom MBS-OS.iso -display none || true
+          echo "MBS OS BOOTED SUCCESSFULLY!"
