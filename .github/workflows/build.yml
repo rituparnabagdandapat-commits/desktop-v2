@@ -1,50 +1,23 @@
 name: Build MBS OS
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-
+on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install tools
-        run: |
-          sudo apt update
-          sudo apt install -y nasm gcc-multilib xorriso mtools
-
-      - name: Find and Build OS
-        run: |
-          # Find files wherever they are
-          find . -name "*.asm" -o -name "*.c" | head -20
-          ls -la
-          
-          # Simple build - works even if only kernel.c exists
-          if [ -f boot.asm ]; then
-            nasm -f elf32 boot.asm -o boot.o
-          else
-            echo "No boot.asm, creating one..."
-            echo -e 'bits 32\nsection.text\n dd 0x1BADB002\n dd 0x00\n dd -(0x1BADB002+0x00)\nglobal start\nextern kmain\nstart:\n cli\n mov esp, stack_space\n call kmain\n hlt\nsection.bss\nresb 8192\nstack_space:' > boot.asm
-            nasm -f elf32 boot.asm -o boot.o
-          fi
-
-          if [ -f kernel.c ]; then
-            gcc -m32 -c kernel.c -o kernel.o -ffreestanding -nostdlib
-          fi
-
-          # Linker script
-          if [ ! -f linker.ld ]; then
-            echo 'ENTRY(start) SECTIONS{ . = 1M; .text : { *(.text) } .rodata : { *(.rodata) } .data : { *(.data) } .bss : { *(.bss) } }' > linker.ld
-          fi
-
-          ld -m elf_i386 -T linker.ld -o kernel.bin boot.o kernel.o
-          echo "Build done! kernel.bin created"
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
+      - run: sudo apt update && sudo apt install -y nasm gcc xorriso git make
+      - run: |
+          git clone https://github.com/limine-bootloader/limine.git --depth=1
+          make -C limine
+          gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel
+          ld -T linker.ld kernel.o -o mbs_kernel.elf
+          mkdir -p iso_root/boot/limine
+          cp mbs_kernel.elf limine.cfg iso_root/boot/
+          cp limine.cfg iso_root/boot/limine/
+          cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/
+          xorriso -as mkisofs -b boot/limine-bios-cd.bin -no-emul-boot -o MBS-OS.iso iso_root/
+         ./limine/limine bios-install MBS-OS.iso
+      - uses: actions/upload-artifact@v4
         with:
-          name: MBS-OS-Kernel
-          path: kernel.bin
+          name: MBS-OS-ISO
+          path: MBS-OS.iso
