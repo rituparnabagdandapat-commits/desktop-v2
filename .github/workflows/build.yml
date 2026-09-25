@@ -5,8 +5,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
-      - run: |
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
+      - name: Build ISO
+        run: |
           git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
           cp limine/limine.h.
           make -C limine
@@ -18,7 +20,8 @@ jobs:
           cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
           xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label iso_root -o MBS-OS.iso
          ./limine/limine bios-install MBS-OS.iso
-      - uses: actions/upload-artifact@v4
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
         with:
           name: MBS-OS-ISO
           path: MBS-OS.iso
