@@ -5,23 +5,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
-      - name: Build ISO
-        run: |
-          git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
-          cp limine/limine.h.
-          make -C limine
-          printf "TIMEOUT=0\n:MBS OS\nPROTOCOL=limine\nKERNEL_PATH=boot:///boot/mbs_kernel.elf\n" > limine.cfg
-          gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
-          ld -T linker.ld kernel.o -o mbs_kernel.elf
-          mkdir -p iso_root/boot/limine
-          cp mbs_kernel.elf limine.cfg iso_root/boot/
-          cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
-          xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label iso_root -o MBS-OS.iso
-         ./limine/limine bios-install MBS-OS.iso
-      - name: Upload ISO
-        uses: actions/upload-artifact@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
+      - run: git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
+      - run: cp limine/limine.h. && make -C limine
+      - run: printf "TIMEOUT=0\n:MBS OS\nPROTOCOL=limine\nKERNEL_PATH=boot:///boot/mbs_kernel.elf\n" > limine.cfg
+      - run: gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
+      - run: ld -T linker.ld kernel.o -o mbs_kernel.elf
+      - run: mkdir -p iso_root/boot/limine && cp mbs_kernel.elf limine.cfg iso_root/boot/ && cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
+      - run: xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label iso_root -o MBS-OS.iso
+      - run:./limine/limine bios-install MBS-OS.iso
+      - uses: actions/upload-artifact@v4
         with:
           name: MBS-OS-ISO
           path: MBS-OS.iso
