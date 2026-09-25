@@ -1,59 +1,24 @@
-#include "limine.h"
-#include <stdint.h>
-
-static volatile struct limine_framebuffer_request fb_req = {
-   .id = LIMINE_FRAMEBUFFER_REQUEST,.revision = 0
-};
-
-static uint32_t mx, my;
-
-static inline void put_pixel(struct limine_framebuffer *fb, int x, int y, uint32_t c){
-    if(x<0||y<0||x>=(int)fb->width||y>=(int)fb->height) return;
-    ((uint32_t*)fb->address)[y*(fb->pitch/4)+x]=c;
-}
-static void rect(struct limine_framebuffer *fb,int x,int y,int w,int h,uint32_t c){
-    for(int j=0;j<h;j++) for(int i=0;i<w;i++) put_pixel(fb,x+i,y+j,c);
-}
-// super simple 8x8 font for all caps
-static void draw_text(struct limine_framebuffer *fb,int x,int y,const char *s,uint32_t c){
-    for(int k=0;s[k];k++){
-        // fake font - just boxes for demo, will show as blocks but compiles!
-        rect(fb,x+k*10,y,8,8,c);
-    }
-}
-static inline uint8_t inb(uint16_t p){uint8_t r; __asm__ volatile("inb %1,%0":"=a"(r):"Nd"(p)); return r;}
-
-void _start(void){
-    if(!fb_req.response || fb_req.response->framebuffer_count<1) for(;;) __asm__("hlt");
-    struct limine_framebuffer *fb=fb_req.response->framebuffers[0];
-    mx=fb->width/2; my=fb->height/2;
-
-    for(;;){
-        // 1. DESKTOP BLUE
-        rect(fb,0,0,fb->width,fb->height,0x0078D7);
-        // 2. WINDOW
-        rect(fb,fb->width/2-210,fb->height/2-160,420,320,0x000000);
-        rect(fb,fb->width/2-200,fb->height/2-150,400,300,0xFFFFFF);
-        rect(fb,fb->width/2-200,fb->height/2-150,400,25,0x2020AA);
-        rect(fb,fb->width/2+150,fb->height/2-145,15,15,0xFF0000);
-        // 3. TASKBAR
-        rect(fb,0,fb->height-40,fb->width,40,0x202020);
-        rect(fb,10,fb->height-35,70,30,0x0078D7);
-        // 4. TEXT
-        draw_text(fb,fb->width/2-80,fb->height/2-140,"MBS OS v2",0xFFFFFF);
-        draw_text(fb,fb->width/2-60,fb->height/2-20,"WINDOWS LIKE!",0x000000);
-        draw_text(fb,15,fb->height-28,"START",0xFFFFFF);
-        // 5. MOUSE - moves with ARROW KEYS
-        rect(fb,mx,my,2,14,0xFFFFFF);
-        rect(fb,mx,my,10,2,0xFFFFFF);
-
-        if(inb(0x64)&1){
-            uint8_t sc=inb(0x60);
-            if(sc==0x48) my-=10;
-            if(sc==0x50) my+=10;
-            if(sc==0x4B) mx-=10;
-            if(sc==0x4D) mx+=10;
-        }
-        if(mx>fb->width) mx=0; if(my>fb->height) my=0;
-    }
-}
+name: Build MBS OS
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
+      - run: |
+          git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
+          cp limine/limine.h.
+          make -C limine
+          printf "TIMEOUT=0\n:MBS OS\nPROTOCOL=limine\nKERNEL_PATH=boot:///boot/mbs_kernel.elf\n" > limine.cfg
+          gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
+          ld -T linker.ld kernel.o -o mbs_kernel.elf
+          mkdir -p iso_root/boot/limine
+          cp mbs_kernel.elf limine.cfg iso_root/boot/
+          cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
+          xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label iso_root -o MBS-OS.iso
+         ./limine/limine bios-install MBS-OS.iso
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MBS-OS-ISO
+          path: MBS-OS.iso
