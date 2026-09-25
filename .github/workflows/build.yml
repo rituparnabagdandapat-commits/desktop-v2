@@ -1,31 +1,122 @@
-name: Build MBS OS
-on: push
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
-      - name: Build ISO
-        run: |
-          git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
-          cp limine/limine.h .
-          make -C limine
-          echo "TIMEOUT=0
-          :MBS OS
-          PROTOCOL=limine
-          KERNEL_PATH=boot:///boot/mbs_kernel.elf" > limine.cfg
-          gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
-          ld -T linker.ld kernel.o -o mbs_kernel.elf
-          mkdir -p iso_root/boot/limine
-          cp mbs_kernel.elf limine.cfg iso_root/boot/
-          cp limine.cfg iso_root/boot/limine/
-          cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/
-          xorriso -as mkisofs -b boot/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label -o MBS-OS.iso iso_root
-          ./limine/limine bios-install MBS-OS.iso
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: MBS-OS-ISO
-          path: MBS-OS.iso
+#include "limine.h"
+#include <stdint.h>
+#include <stddef.h>
+
+static volatile struct limine_framebuffer_request fb_req = {
+   .id = LIMINE_FRAMEBUFFER_REQUEST,
+   .revision = 0
+};
+
+static volatile struct limine_hhdm_request hhdm_req = {
+   .id = LIMINE_HHDM_REQUEST,
+   .revision = 0
+};
+
+static uint8_t font[128][8] = {
+    ['M']={0x42,0x66,0x5A,0x5A,0x42,0x42,0x42,0x00},
+    ['B']={0x7C,0x42,0x42,0x7C,0x42,0x42,0x7C,0x00},
+    ['S']={0x3C,0x42,0x40,0x3C,0x02,0x42,0x3C,0x00},
+    ['O']={0x3C,0x42,0x42,0x42,0x3C,0x00},
+    [' ']={0x00,0x00,0x00,0x00},
+    ['v']={0x00,0x42,0x42,0x42,0x24,0x18,0x00,0x00},
+    ['2']={0x3C,0x42,0x02,0x0C,0x10,0x20,0x7E,0x00},
+    ['-']={0x00,0x00,0x00,0x7E,0x00,0x00,0x00,0x00},
+    ['W']={0x42,0x42,0x42,0x5A,0x5A,0x66,0x42,0x00},
+    ['i']={0x18,0x00,0x18,0x18,0x3C,0x00},
+    ['n']={0x00,0x00,0x5C,0x62,0x42,0x42,0x42,0x00},
+    ['d']={0x02,0x02,0x3A,0x46,0x42,0x42,0x3E,0x00},
+    ['o']={0x00,0x00,0x3C,0x42,0x42,0x42,0x3C,0x00},
+    ['w']={0x00,0x00,0x42,0x5A,0x5A,0x42,0x42,0x00},
+    ['s']={0x00,0x00,0x3C,0x40,0x3C,0x02,0x7C,0x00},
+    ['L']={0x40,0x40,0x40,0x40,0x7E,0x00},
+    ['e']={0x00,0x00,0x3C,0x42,0x7E,0x40,0x3C,0x00},
+    ['g']={0x00,0x00,0x3E,0x42,0x42,0x3E,0x02,0x3C},
+    ['n']={0x00,0x00,0x5C,0x62,0x42,0x42,0x42,0x00},
+    ['d']={0x02,0x02,0x3A,0x46,0x42,0x42,0x3E,0x00},
+    ['.']={0x00,0x00,0x00,0x18,0x18,0x00},
+};
+
+void put_pixel(struct limine_framebuffer *fb, int x, int y, uint32_t color) {
+    if (x < 0 || y < 0 || x >= (int)fb->width || y >= (int)fb->height) return;
+    uint32_t *buf = fb->address;
+    buf[y * (fb->pitch/4) + x] = color;
+}
+
+void draw_rect(struct limine_framebuffer *fb, int x, int y, int w, int h, uint32_t color) {
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++)
+            put_pixel(fb, x+i, y+j, color);
+}
+
+void draw_char(struct limine_framebuffer *fb, int x, int y, char c, uint32_t color) {
+    if (c < 0 || c > 127) return;
+    for (int row = 0; row < 8; row++) {
+        uint8_t bits = font[(int)c][row];
+        for (int col = 0; col < 8; col++) {
+            if (bits & (1 << (7-col))) put_pixel(fb, x+col, y+row, color);
+        }
+    }
+}
+
+void draw_text(struct limine_framebuffer *fb, int x, int y, const char *s, uint32_t color) {
+    int cx = x;
+    while (*s) {
+        draw_char(fb, cx, y, *s, color);
+        cx += 9;
+        s++;
+    }
+}
+
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
+void _start(void) {
+    if (fb_req.response == NULL || fb_req.response->framebuffer_count < 1) {
+        for(;;) __asm__("hlt");
+    }
+    struct limine_framebuffer *fb = fb_req.response->framebuffers[0];
+
+    int mx = fb->width / 2;
+    int my = fb->height / 2;
+
+    for (;;) {
+        // DESKTOP - Windows 10 Blue #0078D7
+        draw_rect(fb, 0, 0, fb->width, fb->height, 0x0078D7);
+
+        // WINDOW - White with shadow
+        draw_rect(fb, fb->width/2 - 200 + 4, fb->height/2 - 150 + 4, 400, 300, 0x000000);
+        draw_rect(fb, fb->width/2 - 200, fb->height/2 - 150, 400, 300, 0xFFFFFF);
+        draw_rect(fb, fb->width/2 - 200, fb->height/2 - 150, 400, 30, 0x0078D7);
+        draw_text(fb, fb->width/2 - 180, fb->height/2 - 142, "MBS OS v2 - Windows", 0xFFFFFF);
+        draw_text(fb, fb->width/2 - 150, fb->height/2 - 50, "MBS OS v2 Legend!", 0x000000);
+        draw_text(fb, fb->width/2 - 180, fb->height/2 - 20, "Use ARROW KEYS to move", 0x555555);
+        draw_text(fb, fb->width/2 - 180, fb->height/2 + 10, "Made by Rituparna", 0x0078D7);
+
+        // TASKBAR
+        draw_rect(fb, 0, fb->height - 40, fb->width, 40, 0x202020);
+        draw_rect(fb, 10, fb->height - 35, 60, 30, 0x0078D7);
+        draw_text(fb, 15, fb->height - 28, "MBS", 0xFFFFFF);
+
+        // MOUSE CURSOR - White arrow
+        draw_rect(fb, mx, my, 2, 12, 0xFFFFFF);
+        draw_rect(fb, mx, my, 8, 2, 0xFFFFFF);
+        draw_rect(fb, mx+1, my+2, 2, 2, 0x000000);
+        draw_rect(fb, mx+2, my+4, 2, 2, 0x000000);
+
+        // Keyboard input - PS/2 polling for arrow keys
+        if (inb(0x64) & 1) {
+            uint8_t scancode = inb(0x60);
+            if (scancode == 0x48) my -= 10; // Up
+            if (scancode == 0x50) my += 10; // Down
+            if (scancode == 0x4B) mx -= 10; // Left
+            if (scancode == 0x4D) mx += 10; // Right
+        }
+        if (mx < 0) mx = 0;
+        if (my < 0) my = 0;
+        if (mx >= (int)fb->width) mx = fb->width - 1;
+        if (my >= (int)fb->height) my = fb->height - 1;
+    }
+}
