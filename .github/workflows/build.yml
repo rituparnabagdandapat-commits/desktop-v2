@@ -1,20 +1,24 @@
-name: Build MBS OS
-on: [push]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
-      - run: git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
-      - run: cp limine/limine.h. && make -C limine
-      - run: printf "TIMEOUT=0\n:MBS OS\nPROTOCOL=limine\nKERNEL_PATH=boot:///boot/mbs_kernel.elf\n" > limine.cfg
-      - run: gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
-      - run: ld -T linker.ld kernel.o -o mbs_kernel.elf
-      - run: mkdir -p iso_root/boot/limine && cp mbs_kernel.elf limine.cfg iso_root/boot/ && cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
-      - run: xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label iso_root -o MBS-OS.iso
-      - run:./limine/limine bios-install MBS-OS.iso
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MBS-OS-ISO
-          path: MBS-OS.iso
+#include "limine.h"
+#include <stdint.h>
+
+static volatile struct limine_framebuffer_request fb_req = {
+   .id = LIMINE_FRAMEBUFFER_REQUEST,
+   .revision = 0
+};
+
+void _start(void){
+    if(fb_req.response == 0 || fb_req.response->framebuffer_count < 1) for(;;) __asm__("hlt");
+    struct limine_framebuffer *fb = fb_req.response->framebuffers[0];
+
+    // Solid MBS Blue #1E3A8A
+    for(uint64_t y=0; y<fb->height; y++){
+        uint8_t *line = (uint8_t*)fb->address + y*fb->pitch;
+        for(uint64_t x=0; x<fb->width; x++){
+            line[x*4+0] = 0x8A; // B
+            line[x*4+1] = 0x3A; // G
+            line[x*4+2] = 0x1E; // R
+            line[x*4+3] = 0x00;
+        }
+    }
+    for(;;) __asm__("hlt");
+}
