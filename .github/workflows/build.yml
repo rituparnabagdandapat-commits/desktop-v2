@@ -14,6 +14,8 @@ jobs:
       - run: mkdir -p iso_root/boot/limine && cp mbs_kernel.elf limine.cfg iso_root/boot/ && cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
       - run: xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table --efi-boot boot/limine/limine-uefi-cd.bin -efi-boot-part --efi-boot-image --protective-msdos-label iso_root -o MBS-OS.iso
       - run: ./limine/limine bios-install MBS-OS.iso
+      - run: sudo apt-get install -y qemu-system-x64
+      - run: timeout 10 qemu-system-x86_64 -cdrom MBS-OS.iso -nographic -serial mon:stdio || true
       - uses: actions/upload-artifact@v4
         with:
           name: MBS-OS-ISO
