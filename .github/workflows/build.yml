@@ -7,7 +7,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y gcc binutils make git xorriso mtools
       - run: git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1
-      - run: cp limine/limine.h. && make -C limine
+      - run: cp limine/limine.h . && make -C limine
       - run: printf "TIMEOUT=0\n:MBS OS\nPROTOCOL=limine\nKERNEL_PATH=boot:///boot/mbs_kernel.elf\n" > limine.cfg
       - run: gcc -c kernel.c -o kernel.o -ffreestanding -nostdlib -m64 -mcmodel=kernel -fno-pic -fno-pie -fno-stack-protector -mno-red-zone
       - run: ld -T linker.ld kernel.o -o mbs_kernel.elf
